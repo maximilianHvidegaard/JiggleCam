@@ -23,7 +23,7 @@ echo "== apt packages"
 sudo apt update
 sudo apt install -y --no-install-recommends \
   git \
-  python3-picamera2 \
+  python3-picamera2 python3-numpy python3-pil \
   python3-pyqt5 python3-pyqt5.qtopengl python3-opengl \
   python3-pyqt6 qt6-qpa-plugins \
   python3-venv python3-pip \

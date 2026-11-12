@@ -2,8 +2,8 @@
 # Do not edit for machine-specific tweaks: copy the keys you want to change
 # into config/local.toml (gitignored). Keys there override these.
 #
-# Only phase-1 keys exist so far. Camera spacing, output resolution and
-# frame timing are added in the phases that use them.
+# Keys are added in the phase that uses them. Camera spacing, output
+# resolution and frame timing (ms per frame) arrive with phase 3.
 
 [display]
 fullscreen = true
@@ -23,10 +23,10 @@ kms_device = "auto"
 # "gl"       = QGlPicamera2: GPU path, but picamera2's GL widgets need an X11
 #              or Wayland display server. On eglfs the app falls back to software.
 backend = "software"
-# Camera stream size for the preview. Kept modest: the screen is small and
-# a smaller stream means lower latency and less memory bandwidth.
-width = 1280
-height = 720
+# Viewfinder stream size. Matches the 800x480 screen (minus the side bar) at
+# 16:9, the same aspect as the capture size, so framing matches the photo.
+width = 768
+height = 432
 # Keep the camera's aspect ratio (letterbox) instead of stretching.
 keep_aspect = true
 
@@ -35,6 +35,24 @@ keep_aspect = true
 index = 0
 # Rotate the image 180 degrees if the camera is mounted upside down.
 rotate_180 = false
+
+[capture]
+# "single"   = SingleCameraSource: one camera, 4 frames in a fast burst.
+#              Slide the camera sideways while shooting to get real parallax.
+# "quad_hat" / "networked" = not implemented yet (phase 6).
+source = "single"
+# Size of each saved frame. 2304x1296 is Camera Module 3's fast 2x2-binned
+# mode (16:9). picamera2 picks the closest sensor mode for other cameras.
+width = 2304
+height = 1296
+views = 4
+max_settle_frames = 10
+
+[storage]
+# One folder per shot: frame_1..N.jpg + thumb.jpg + set.json
+root = "~/jigglecam-captures"
+jpeg_quality = 95
+thumb_width = 240
 
 [ui]
 # Hold the exit button this long (ms) to quit. Prevents accidental exits.

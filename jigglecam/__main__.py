@@ -42,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         return run(cfg)
-    except CameraUnavailable as exc:
+    except (CameraUnavailable, NotImplementedError) as exc:
         print(f"[jigglecam] {exc}", file=sys.stderr)
         return 1
 

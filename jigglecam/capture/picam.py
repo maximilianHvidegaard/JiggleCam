@@ -1,9 +1,4 @@
-"""Open and configure a single Picamera2 camera for live preview.
-
-Phase 2 will wrap this behind CaptureSource (preview stream + 4-frame
-capture). For now it is a thin, explicit helper so the UI does not have to
-know about libcamera configuration details.
-"""
+"""Small Picamera2 helpers shared by capture sources."""
 
 from __future__ import annotations
 
@@ -11,50 +6,38 @@ import threading
 import time
 from dataclasses import dataclass
 
-from jigglecam.config import CameraConfig, PreviewConfig
+# libcamera AfMode values (controls.AfModeEnum). picamera2 accepts plain ints.
+AF_MANUAL = 0
+AF_CONTINUOUS = 2
 
 
 class CameraUnavailable(RuntimeError):
     pass
 
 
-def list_cameras() -> list[dict]:
-    from picamera2 import Picamera2
-
-    return Picamera2.global_camera_info()
-
-
-def open_preview_camera(cam_cfg: CameraConfig, prev_cfg: PreviewConfig):
-    """Return a configured (not yet started) Picamera2 instance."""
-    from libcamera import Transform
-    from picamera2 import Picamera2
-
+def check_camera_index(Picamera2, index: int) -> None:
     cams = Picamera2.global_camera_info()
     if not cams:
         raise CameraUnavailable(
             "No cameras detected. Check the ribbon cable orientation and run "
             "`rpicam-hello --list-cameras`."
         )
-    if cam_cfg.index >= len(cams):
-        raise CameraUnavailable(f"camera.index={cam_cfg.index} but only {len(cams)} camera(s) found: {cams}")
+    if index >= len(cams):
+        raise CameraUnavailable(f"camera.index={index} but only {len(cams)} camera(s) found: {cams}")
 
-    picam2 = Picamera2(cam_cfg.index)
-    transform = Transform(hflip=1, vflip=1) if cam_cfg.rotate_180 else Transform()
-    config = picam2.create_preview_configuration(
-        main={"size": (prev_cfg.width, prev_cfg.height)},
-        transform=transform,
-    )
-    picam2.configure(config)
-    return picam2
+
+def make_transform(rotate_180: bool):
+    from libcamera import Transform
+
+    return Transform(hflip=1, vflip=1) if rotate_180 else Transform()
 
 
 @dataclass
 class FrameRateMeter:
     """Counts frames delivered by the camera. Attach with attach(picam2).
 
-    picam2.post_callback runs on the camera thread for every completed
-    request, so this measures the real camera frame rate, independent of
-    how often the UI repaints.
+    picam2.post_callback runs for every completed request, so this measures
+    the real camera frame rate, independent of how often the UI repaints.
     """
 
     _count: int = 0

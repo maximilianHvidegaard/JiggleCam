@@ -51,6 +51,34 @@ class CameraConfig:
 
 
 @dataclass(frozen=True)
+class CaptureConfig:
+    source: str = "single"
+    width: int = 2304
+    height: int = 1296
+    views: int = 4
+    # Frames thrown away after the mode switch while waiting for the locked
+    # exposure to show up in the metadata, before giving up and capturing anyway.
+    max_settle_frames: int = 10
+
+    def __post_init__(self) -> None:
+        if self.source not in ("single", "quad_hat", "networked"):
+            raise ConfigError(f"capture.source must be single, quad_hat or networked, got {self.source!r}")
+        if self.views < 2:
+            raise ConfigError("capture.views must be at least 2")
+
+
+@dataclass(frozen=True)
+class StorageConfig:
+    root: str = "~/jigglecam-captures"
+    jpeg_quality: int = 95
+    thumb_width: int = 240
+
+    @property
+    def root_path(self) -> Path:
+        return Path(self.root).expanduser()
+
+
+@dataclass(frozen=True)
 class UIConfig:
     exit_hold_ms: int = 1000
 
@@ -60,6 +88,8 @@ class Config:
     display: DisplayConfig = field(default_factory=DisplayConfig)
     preview: PreviewConfig = field(default_factory=PreviewConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
+    capture: CaptureConfig = field(default_factory=CaptureConfig)
+    storage: StorageConfig = field(default_factory=StorageConfig)
     ui: UIConfig = field(default_factory=UIConfig)
 
 
