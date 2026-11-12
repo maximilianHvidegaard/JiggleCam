@@ -57,3 +57,5 @@ thumb_width = 240
 [ui]
 # Hold the exit button this long (ms) to quit. Prevents accidental exits.
 exit_hold_ms = 1000
+# Library playback: how long each frame of the 1-2-3-4-3-2 loop is shown (ms).
+playback_frame_ms = 120

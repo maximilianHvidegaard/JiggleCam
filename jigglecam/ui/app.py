@@ -1,181 +1,85 @@
-"""Camera screen: viewfinder + right-hand side bar (owner decision).
+"""Main window: one screen at a time in a stack.
 
-    +----------------------------------------------+--------+
-    |                                              | [hold✕]|
-    |                                              | Ready  |
-    |              viewfinder (one lens)           |        |
-    |                                              |  (O)   |  <- shutter
-    |                                              |        |
-    |                                              | [thumb]|  <- last shot
-    |                                              | 30 fps |
-    +----------------------------------------------+--------+
+    Camera  --(☰ Menu)-->  slide-over panel  --> Library / Settings / exit
+    Camera  --(tap thumbnail)-->  Viewer (latest shot)
+    Library --(tap a shot)-->  Viewer  --(Back or Delete)-->  Library
 
-Threading: the UI never waits on the camera or the SD card. The shutter
-calls CaptureController.trigger(), which returns at once. Results come back
-as CaptureEvents from worker threads and are moved onto the Qt thread by
-the _EventBridge signal before touching any widget.
+The camera keeps streaming while another screen is in front, so going back
+to the viewfinder is instant and the controller can finish saving a shot in
+the background. Screens talk to each other only through signals wired here.
 """
 
 from __future__ import annotations
 
 from jigglecam.capture import CaptureSource, make_source
-from jigglecam.capture.picam import FrameRateMeter
 from jigglecam.config import Config
-from jigglecam.controller import CaptureController, CaptureEvent
 from jigglecam.storage import SetStore, StoredSet
 from jigglecam.ui import qt_compat
+from jigglecam.ui.camera import CameraScreen
+from jigglecam.ui.library import LibraryScreen, SetViewer
 from jigglecam.ui.qt_compat import QShortcut, Qt, QtCore, QtGui, QtWidgets
-
-SIDEBAR_WIDTH = 112
-SHUTTER_SIZE = 84
-THUMB_SIZE = QtCore.QSize(96, 54)
-FLASH_MS = 120
+from jigglecam.ui.settings import SettingsScreen, gather_info
 
 
-class HoldButton(QtWidgets.QPushButton):
-    """Emits `held` only after being pressed continuously for `hold_ms`."""
-
-    held = QtCore.pyqtSignal()
-
-    def __init__(self, text: str, hold_ms: int, parent=None):
-        super().__init__(text, parent)
-        self._timer = QtCore.QTimer(self)
-        self._timer.setSingleShot(True)
-        self._timer.setInterval(hold_ms)
-        self._timer.timeout.connect(self.held.emit)
-        self.pressed.connect(self._timer.start)
-        self.released.connect(self._timer.stop)
-
-
-class _EventBridge(QtCore.QObject):
-    """Carries CaptureEvents from worker threads to the Qt thread (queued signal)."""
-
-    event = QtCore.pyqtSignal(object)
-
-
-class CameraScreen(QtWidgets.QWidget):
+class MainWindow(QtWidgets.QStackedWidget):
     def __init__(self, cfg: Config, source: CaptureSource, store: SetStore, backend: str, widget_cls):
         super().__init__()
         self.setWindowTitle("JiggleCam")
-        self.setStyleSheet("background: #141414; color: #ddd;")
         self.store = store
+        self.camera = CameraScreen(cfg, source, store, backend, widget_cls)
+        self.library = LibraryScreen(store)
+        self.viewer = SetViewer(store, cfg.ui.playback_frame_ms)
 
-        picam2 = source.preview_camera
-        self.preview = widget_cls(
-            picam2, width=cfg.preview.width, height=cfg.preview.height, keep_ar=cfg.preview.keep_aspect
-        )
-        self.flash = QtWidgets.QWidget(self.preview)
-        self.flash.setStyleSheet("background: rgba(255, 255, 255, 200);")
-        self.flash.hide()
+        def info():
+            app = QtWidgets.QApplication.instance()
+            g = app.primaryScreen().geometry()
+            return gather_info(cfg, source, store, backend, app.platformName(), f"{g.width()}x{g.height()}")
 
-        self.bridge = _EventBridge()
-        self.bridge.event.connect(self._on_event)
-        self.controller = CaptureController(source, store, self.bridge.event.emit)
+        self.settings = SettingsScreen(info)
+        for w in (self.camera, self.library, self.viewer, self.settings):
+            self.addWidget(w)
+        self._viewer_return: QtWidgets.QWidget = self.library
 
-        root = QtWidgets.QHBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-        root.addWidget(self.preview, 1)
-        root.addWidget(self._build_sidebar(cfg, backend))
+        self.camera.open_library.connect(self.show_library)
+        self.camera.open_settings.connect(self.show_settings)
+        self.camera.open_set.connect(lambda s: self.show_viewer(s, return_to=self.camera))
+        self.camera.quit.connect(self.close)
+        self.library.back.connect(self.show_camera)
+        self.library.open_set.connect(lambda s: self.show_viewer(s, return_to=self.library))
+        self.viewer.back.connect(self._leave_viewer)
+        self.viewer.deleted.connect(self._after_delete)
+        self.settings.back.connect(self.show_camera)
 
         QShortcut(QtGui.QKeySequence("Esc"), self, activated=self.close)
-        QShortcut(QtGui.QKeySequence("Space"), self, activated=self.controller.trigger)
+        QShortcut(QtGui.QKeySequence("Space"), self, activated=self.camera.trigger_shortcut)
 
-        self.meter = FrameRateMeter()
-        self.meter.attach(picam2)
-        self._fps_timer = QtCore.QTimer(self)
-        self._fps_timer.timeout.connect(lambda: self.fps_label.setText(f"{self.meter.sample():.0f} fps"))
-        self._fps_timer.start(1000)
+    def show_camera(self) -> None:
+        self.camera.refresh_thumb()
+        self.setCurrentWidget(self.camera)
 
-        self._show_thumb(store.latest())
+    def show_library(self) -> None:
+        self.library.refresh()
+        self.setCurrentWidget(self.library)
 
-    def _build_sidebar(self, cfg: Config, backend: str) -> QtWidgets.QWidget:
-        bar = QtWidgets.QWidget()
-        bar.setFixedWidth(SIDEBAR_WIDTH)
-        bar.setStyleSheet("background: #0c0c0c;")
-        lay = QtWidgets.QVBoxLayout(bar)
-        lay.setContentsMargins(8, 8, 8, 8)
-        lay.setSpacing(6)
+    def show_settings(self) -> None:
+        self.settings.refresh()
+        self.setCurrentWidget(self.settings)
 
-        exit_btn = HoldButton("hold ✕", cfg.ui.exit_hold_ms)
-        exit_btn.setFixedHeight(40)
-        exit_btn.setStyleSheet("background: #262626; border-radius: 6px; color: #aaa;")
-        exit_btn.held.connect(self.close)
+    def show_viewer(self, stored: StoredSet, return_to: QtWidgets.QWidget) -> None:
+        self._viewer_return = return_to
+        self.setCurrentWidget(self.viewer)
+        self.viewer.show_set(stored)
 
-        self.status = QtWidgets.QLabel("Ready")
-        self.status.setWordWrap(True)
-        self.status.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self.status.setStyleSheet("font-size: 13px;")
+    def _leave_viewer(self) -> None:
+        self.show_camera() if self._viewer_return is self.camera else self.show_library()
 
-        self.shutter = QtWidgets.QPushButton()
-        self.shutter.setFixedSize(SHUTTER_SIZE, SHUTTER_SIZE)
-        self._style_shutter(ready=True)
-        self.shutter.pressed.connect(self.controller.trigger)  # fire on touch-down: less lag
-
-        self.thumb = QtWidgets.QLabel()
-        self.thumb.setFixedSize(THUMB_SIZE)
-        self.thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.thumb.setStyleSheet("background: #222; border-radius: 4px; color: #555; font-size: 11px;")
-
-        self.fps_label = QtWidgets.QLabel("-- fps")
-        self.fps_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self.fps_label.setStyleSheet("color: #666; font-size: 11px;")
-        self.fps_label.setToolTip(f"{backend} preview, {qt_compat.BINDING}")
-
-        lay.addWidget(exit_btn)
-        lay.addWidget(self.status)
-        lay.addStretch(1)
-        lay.addWidget(self.shutter, 0, Qt.AlignmentFlag.AlignHCenter)
-        lay.addStretch(1)
-        lay.addWidget(self.thumb, 0, Qt.AlignmentFlag.AlignHCenter)
-        lay.addWidget(self.fps_label)
-        return bar
-
-    def _style_shutter(self, ready: bool) -> None:
-        r = SHUTTER_SIZE // 2
-        fill = "#f2f2f2" if ready else "#777"
-        self.shutter.setStyleSheet(
-            f"QPushButton {{ background: {fill}; border: 4px solid #555; border-radius: {r}px; }}"
-            f"QPushButton:pressed {{ background: #bbb; }}"
-        )
-
-    def _show_thumb(self, stored: StoredSet | None) -> None:
-        if stored is None or not stored.thumb_path.exists():
-            self.thumb.setText("no shots")
-            return
-        pix = QtGui.QPixmap(str(stored.thumb_path))
-        self.thumb.setPixmap(pix.scaled(THUMB_SIZE, Qt.AspectRatioMode.KeepAspectRatio,
-                                        Qt.TransformationMode.SmoothTransformation))
-
-    def _flash(self) -> None:
-        self.flash.setGeometry(self.preview.rect())
-        self.flash.raise_()
-        self.flash.show()
-        QtCore.QTimer.singleShot(FLASH_MS, self.flash.hide)
-
-    def _on_event(self, ev: CaptureEvent) -> None:
-        """Runs on the Qt thread."""
-        if ev.kind == "started":
-            self._style_shutter(ready=False)
-            self.status.setText("Capturing…")
-            self._flash()
-        elif ev.kind == "captured":
-            self._style_shutter(ready=True)
-            note = "" if ev.detail.lock_verified else "\n⚠ lock unverified"
-            self.status.setText(f"Saving…\n{ev.detail.spread_ms:.0f} ms{note}")
-        elif ev.kind == "saved":
-            self.status.setText(f"Saved\n{ev.detail.name[-8:]}")
-            self._show_thumb(ev.detail)
-        elif ev.kind == "failed":
-            self._style_shutter(ready=True)
-            self.status.setText(f"<span style='color:#ff6b6b'>Error</span>")
-            self.status.setToolTip(str(ev.detail))
-            print(f"[jigglecam] {ev.detail}")
+    def _after_delete(self) -> None:
+        self.camera.refresh_thumb()
+        self._leave_viewer()
 
     def closeEvent(self, event) -> None:
-        self.status.setText("Finishing…")
-        QtWidgets.QApplication.processEvents()
-        self.controller.shutdown()  # waits for the running capture and pending saves
+        self.viewer.shutdown()
+        self.camera.shutdown()
         super().closeEvent(event)
 
 
@@ -212,7 +116,7 @@ def run(cfg: Config) -> int:
     store = SetStore(cfg.storage)
     source.open()
     try:
-        win = CameraScreen(cfg, source, store, backend, widget_cls)  # widget must exist before start()
+        win = MainWindow(cfg, source, store, backend, widget_cls)  # widget must exist before start()
         source.start()
         if cfg.display.fullscreen:
             win.showFullScreen()

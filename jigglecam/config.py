@@ -81,6 +81,7 @@ class StorageConfig:
 @dataclass(frozen=True)
 class UIConfig:
     exit_hold_ms: int = 1000
+    playback_frame_ms: int = 120
 
 
 @dataclass(frozen=True)

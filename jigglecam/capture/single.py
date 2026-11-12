@@ -126,6 +126,17 @@ class SingleCameraSource(CaptureSource):
     def start(self) -> None:
         self.preview_camera.start()
 
+    def info(self) -> dict[str, str]:
+        out = super().info()
+        props = getattr(self._picam2, "camera_properties", None) or {}
+        out["Camera"] = str(props.get("Model", "unknown"))
+        if "PixelArraySize" in props:
+            w, h = props["PixelArraySize"]
+            out["Sensor"] = f"{w}x{h}"
+        out["Autofocus"] = "yes" if self._has_af else "no (fixed focus)"
+        out["Capture size"] = f"{self._cap_cfg.width}x{self._cap_cfg.height}"
+        return out
+
     def close(self) -> None:
         if self._picam2 is not None:
             try:

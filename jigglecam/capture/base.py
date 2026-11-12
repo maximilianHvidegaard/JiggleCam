@@ -97,3 +97,7 @@ class CaptureSource(ABC):
     @abstractmethod
     def close(self) -> None:
         """Stop and release all cameras. Safe to call more than once."""
+
+    def info(self) -> dict[str, str]:
+        """Human-readable facts for the settings screen (label -> value)."""
+        return {"Source": self.name, "Views": str(self.num_views)}

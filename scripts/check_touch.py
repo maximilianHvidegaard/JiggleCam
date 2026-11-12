@@ -33,7 +33,7 @@ from jigglecam.platform_env import configure_qt_platform  # noqa: E402
 _QT_ENV = configure_qt_platform(_config.load().display)
 
 from jigglecam.ui import qt_compat  # noqa: E402
-from jigglecam.ui.app import HoldButton  # noqa: E402
+from jigglecam.ui.widgets import HoldButton  # noqa: E402
 from jigglecam.ui.qt_compat import QShortcut, Qt, QtCore, QtGui, QtWidgets  # noqa: E402
 
 MARGIN = 60

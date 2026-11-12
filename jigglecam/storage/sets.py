@@ -135,3 +135,26 @@ class SetStore:
     def latest(self) -> StoredSet | None:
         sets = self.list()
         return sets[0] if sets else None
+
+    def delete(self, stored: StoredSet) -> None:
+        """Remove a set from disk. Permanent: there is no trash.
+
+        The folder is first renamed to a hidden ".trash-" name, so list() stops
+        showing it at once and a crash halfway through never leaves a set with
+        missing frames. Leftover .trash- folders are cleaned up on the next delete.
+        """
+        path = stored.path.resolve()
+        if path.parent != self.root.resolve() or path.name.startswith("."):
+            raise ValueError(f"refusing to delete {path}: not a set in {self.root}")
+        trash = self.root / f".trash-{path.name}"
+        if trash.exists():
+            shutil.rmtree(trash)
+        path.rename(trash)
+        for leftover in self.root.glob(".trash-*"):
+            shutil.rmtree(leftover, ignore_errors=True)
+
+    def usage(self) -> tuple[int, int]:
+        """(number of sets, total bytes they take on disk)."""
+        sets = self.list()
+        total = sum(f.stat().st_size for s in sets for f in s.path.iterdir() if f.is_file())
+        return len(sets), total

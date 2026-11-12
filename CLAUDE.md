@@ -13,15 +13,22 @@ fullscreen touch UI, live preview, shutter, gallery, playback, settings.
 - Keep this file updated whenever a decision changes.
 
 ## Status
-**Current phase: 2 + camera screen** (owner chose to build them together).
-Written and tested against a fake camera; **not yet verified on the Pi.**
+**Current phase: 2 + camera screen, verified on the Pi** (capture works; exposure-cap
+issue open, see below). **Plus, pulled forward from phase 4 by the owner: menu, library
+and read-only settings**: written and tested against a fake camera, not yet on the Pi.
+
+Open issue from the first Pi capture: in dim light the viewfinder picks exposures
+> 33 ms (preview mode allows down to ~12 fps), but the 30 fps capture mode caps
+exposure at ~32.7 ms, so frames come out ~0.6 EV darker and are marked "lock
+unverified". Fix options offered: cap the viewfinder at 30 fps, or trade exposure
+time for gain at capture. ❓ owner hasn't chosen.
 
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Repo, CLAUDE.md, camera + touch checks, fullscreen live preview | done: preview at a steady 30 fps on the Pi |
-| 2 | `CaptureSource` interface, `SingleCameraSource`, save 4-frame sets, plus camera screen (shutter, last-shot thumbnail) | code written, needs Pi verification |
+| 2 | `CaptureSource` interface, `SingleCameraSource`, save 4-frame sets, plus camera screen (shutter, last-shot thumbnail) | works on the Pi; exposure-cap issue open |
 | 3 | Tap-to-select subject, translation alignment, crop, GIF + MP4 | not started |
-| 4 | Gallery, playback, settings, delete/export | not started |
+| 4 | Gallery, playback, settings, delete/export | partly done early: menu, library (grid, raw wiggle playback, delete), read-only settings. Still to do: editable settings, export, aligned playback |
 | 5 | GPIO shutter + battery abstraction (stubbed) | not started |
 | 6 | Real 4-camera backend | waiting on hardware |
 
@@ -51,6 +58,11 @@ Written and tested against a fake camera; **not yet verified on the Pi.**
 | Threading | `CaptureController`: one capture thread + one storage thread; events go to Qt via a signal | UI never blocks. The next shot can start while the previous one is saving. | Claude |
 | Shutter abstraction | `CaptureController.trigger()` is the single entry point | Screen button now, GPIO in phase 5, same call | Claude |
 | Shutter placement | Right-edge side bar (112 px): hold-✕ exit, status, round shutter, last-shot thumbnail, fps | Phone-like, thumb-reachable in landscape | **owner** |
+| Navigation | "☰ Menu" at the top of the side bar opens a **slide-over panel** over the dimmed viewfinder: Library, Settings, hold-to-exit. Tapping the last-shot thumbnail opens that shot. Screens live in one `QStackedWidget` (`MainWindow`). | Exit moved from the side bar into the menu | **owner** (panel), Claude (thumbnail tap, stack) |
+| Library | Thumbnail grid (4 columns, newest first, drag to scroll) → viewer that loops the **raw, unaligned** frames 1-2-3-4-3-2, tap/Pause to stop and step views with ◀ ▶, Delete with a full-screen confirm | Alignment is phase 3; delete is permanent (no trash) | **owner** |
+| Settings | **Read-only info** for now: camera, storage used/free, display, version | Defers the settings save-format decision until something is editable | **owner** |
+| Camera while another screen is open | Keeps streaming | Instant return to the viewfinder; saving continues in the background. Costs some CPU (software preview still converts frames). | Claude |
+| Viewer decoding | PIL JPEG draft mode down to ~800x450 on a worker thread | Several times faster than full decode, and the UI never waits | Claude |
 | Config format | TOML (`config/default.toml` + gitignored `config/local.toml`) | Easy to edit by hand, built into Python 3.11. Phase 4 settings writes need `tomli-w` or a separate JSON file. | ❓ **open** (owner hasn't confirmed) |
 | Env | apt packages + `.venv --system-site-packages` | picamera2 must come from apt | fixed |
 
@@ -72,7 +84,12 @@ jigglecam/capture/quad_hat.py, networked.py   stubs + design notes for phase 6 (
 jigglecam/capture/picam.py   small Picamera2 helpers, FrameRateMeter
 jigglecam/storage/sets.py    SetStore: save/list/load capture folders (format documented here)
 jigglecam/ui/qt_compat.py    choose the Qt binding, load picamera2 preview widgets; import Qt only from here
-jigglecam/ui/app.py          CameraScreen (viewfinder + side bar), choose_preview, run()
+jigglecam/ui/app.py          MainWindow (screen stack + navigation), choose_preview, run()
+jigglecam/ui/camera.py       CameraScreen (viewfinder + side bar) and the slide-over MenuPanel
+jigglecam/ui/library.py      LibraryScreen (thumbnail grid) and SetViewer (wiggle playback, delete)
+jigglecam/ui/settings.py     SettingsScreen (read-only info) and gather_info()
+jigglecam/ui/widgets.py      HoldButton, ConfirmOverlay, top bar, touch scrolling
+jigglecam/ui/frames.py       wiggle_order(), fast JPEG decode for the screen (no Qt)
 scripts/setup_pi.sh          one-time Pi setup (apt + venv)
 scripts/check_camera.py      detection, still, fps/jitter, AE/AWB/AF lock test
 scripts/check_touch.py       display/touch mapping + Qt binding report
@@ -91,7 +108,7 @@ bash scripts/setup_pi.sh          # once (re-run after pulling: new apt packages
 source .venv/bin/activate
 python scripts/check_camera.py    # wave a hand in front of the lens during step 4
 python scripts/check_touch.py     # tap all 4 crosshairs; hold the button to exit
-python -m jigglecam               # camera screen; tap the shutter; hold "hold ✕" 1 s, or Esc
+python -m jigglecam               # camera screen; tap the shutter; ☰ Menu -> hold to exit, or Esc
 python -m jigglecam --windowed    # windowed with a visible cursor, for debugging
 pytest                            # all tests use fakes; they also run on a desktop
 ```
@@ -129,6 +146,14 @@ Phase 2 + camera screen:
 - [ ] Viewfinder blackout duration feels acceptable (record it)
 - [ ] Rapid tapping never crashes; a second tap during capture is ignored
 - [ ] Sliding the camera sideways while shooting gives visibly offset frames
+
+Menu, library, settings:
+- [ ] ☰ Menu slides in smoothly; tapping the dimmed area closes it; hold-to-exit quits
+- [ ] Library grid scrolls by dragging with a finger, and a tap opens the shot (a drag doesn't)
+- [ ] Viewer opens in well under a second and loops 1-2-3-4-3-2; Pause + ◀ ▶ step views
+- [ ] Delete → confirm removes the folder; the camera thumbnail updates
+- [ ] Settings shows the real camera model and free space on the SD card
+- [ ] Back on the camera screen the viewfinder is still live at ~30 fps
 
 ## Desktop-only caveats
 - `pytest` and `check_touch.py --windowed` run on a desktop (they need PyQt, numpy and
