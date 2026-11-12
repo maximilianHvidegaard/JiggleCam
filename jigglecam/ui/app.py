@@ -39,14 +39,11 @@ class HoldButton(QtWidgets.QPushButton):
 
 
 class PreviewWindow(QtWidgets.QWidget):
-    def __init__(self, cfg: Config, picam2):
+    def __init__(self, cfg: Config, picam2, backend: str, widget_cls):
         super().__init__()
         self.setWindowTitle("JiggleCam")
         self.setStyleSheet("background: #141414; color: #ddd;")
 
-        widget_cls = qt_compat.QGlPicamera2 if cfg.preview.backend == "gl" else qt_compat.QPicamera2
-        if widget_cls is None:
-            raise RuntimeError(f"picamera2 Qt preview unavailable: {qt_compat.PREVIEW_IMPORT_ERROR}")
         self.preview = widget_cls(
             picam2,
             width=cfg.preview.width,
@@ -55,7 +52,7 @@ class PreviewWindow(QtWidgets.QWidget):
         )
 
         self.fps_label = QtWidgets.QLabel("-- fps")
-        self.info_label = QtWidgets.QLabel(f"{cfg.preview.backend} | {qt_compat.BINDING}")
+        self.info_label = QtWidgets.QLabel(f"{backend} preview | {qt_compat.BINDING}")
         self.info_label.setStyleSheet("color: #888;")
         exit_btn = HoldButton("hold to exit", cfg.ui.exit_hold_ms)
         exit_btn.setMinimumSize(160, 56)  # finger-sized
@@ -90,23 +87,48 @@ class PreviewWindow(QtWidgets.QWidget):
         self.fps_label.setText(f"{self.meter.sample():.1f} fps")
 
 
+# Qt platforms with no display server: picamera2's GL widgets need X11 or
+# Wayland, so only the CPU widget can work here.
+_NO_DISPLAY_SERVER = ("eglfs", "linuxfb")
+
+
+def choose_preview(requested: str, platform: str) -> tuple[str, type]:
+    """Pick the preview widget, falling back to software (with a log line) when GL can't work."""
+    backend = requested
+    if backend == "gl" and platform in _NO_DISPLAY_SERVER:
+        print(f"[jigglecam] GL preview needs X11/Wayland but Qt platform is {platform!r}; "
+              "using the software preview")
+        backend = "software"
+    widget_cls = qt_compat.preview_widget(backend)
+    if widget_cls is None and backend == "gl":
+        print(f"[jigglecam] GL preview unavailable ({qt_compat.preview_error('gl')}); "
+              "using the software preview")
+        backend = "software"
+        widget_cls = qt_compat.preview_widget(backend)
+    if widget_cls is None:
+        raise RuntimeError(f"picamera2 Qt preview unavailable: {qt_compat.preview_error(backend)}")
+    return backend, widget_cls
+
+
 def run(cfg: Config) -> int:
     from jigglecam.capture.picam import open_preview_camera
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     if cfg.display.hide_cursor:
         app.setOverrideCursor(QtGui.QCursor(Qt.CursorShape.BlankCursor))
+    backend, widget_cls = choose_preview(cfg.preview.backend, app.platformName())
 
     picam2 = open_preview_camera(cfg.camera, cfg.preview)
     try:
-        win = PreviewWindow(cfg, picam2)  # widget must exist before start()
+        win = PreviewWindow(cfg, picam2, backend, widget_cls)  # widget must exist before start()
         picam2.start()
         if cfg.display.fullscreen:
             win.showFullScreen()
         else:
             win.resize(1024, 640)
             win.show()
-        print(f"[jigglecam] running: {qt_compat.summary()}, platform={app.platformName()}")
+        print(f"[jigglecam] running: {backend} preview, {qt_compat.BINDING} "
+              f"(Qt {QtCore.QT_VERSION_STR}), platform={app.platformName()}")
         return app.exec()
     finally:
         picam2.stop()

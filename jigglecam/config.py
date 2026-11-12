@@ -34,7 +34,7 @@ class DisplayConfig:
 
 @dataclass(frozen=True)
 class PreviewConfig:
-    backend: str = "gl"
+    backend: str = "software"
     width: int = 1280
     height: int = 720
     keep_aspect: bool = True

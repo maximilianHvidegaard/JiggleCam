@@ -18,9 +18,11 @@ rotation = 0
 kms_device = "auto"
 
 [preview]
-# "gl"       = QGlPicamera2: GPU path, frames never touch Python. Preferred.
-# "software" = QPicamera2: CPU fallback if GL fails on your display setup.
-backend = "gl"
+# "software" = QPicamera2: each frame is copied through the CPU into Qt. The
+#              only option that works on Pi OS Lite (Qt eglfs, no display server).
+# "gl"       = QGlPicamera2: GPU path, but picamera2's GL widgets need an X11
+#              or Wayland display server. On eglfs the app falls back to software.
+backend = "software"
 # Camera stream size for the preview. Kept modest: the screen is small and
 # a smaller stream means lower latency and less memory bandwidth.
 width = 1280
