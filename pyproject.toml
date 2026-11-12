@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jigglecam"
+version = "0.1.0"
+description = "4-camera wigglegram camera for Raspberry Pi 5"
+requires-python = ">=3.11"
+# Runtime deps (picamera2, PyQt, OpenCV) come from apt on the Pi, NOT pip:
+# picamera2 is tied to the system libcamera build. See scripts/setup_pi.sh.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+jigglecam = "jigglecam.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["jigglecam*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

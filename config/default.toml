@@ -1,0 +1,39 @@
+# JiggleCam default configuration.
+# Do not edit for machine-specific tweaks: copy the keys you want to change
+# into config/local.toml (gitignored). Keys there override these.
+#
+# Only phase-1 keys exist so far. Camera spacing, output resolution and
+# frame timing are added in the phases that use them.
+
+[display]
+fullscreen = true
+# Hide the mouse cursor (touchscreen use). Set false when debugging with a mouse.
+hide_cursor = true
+# Screen rotation in degrees (0, 90, 180, 270). Applied by Qt's eglfs backend
+# on Raspberry Pi OS Lite. Check touch still lines up with scripts/check_touch.py.
+rotation = 0
+# DRM device Qt draws to on Lite. "auto" = the first /dev/dri/cardN that has a
+# connected screen. The Pi 5 has several cardN devices and Qt can pick the
+# wrong one, so set e.g. "/dev/dri/card1" here if auto-detection fails.
+kms_device = "auto"
+
+[preview]
+# "gl"       = QGlPicamera2: GPU path, frames never touch Python. Preferred.
+# "software" = QPicamera2: CPU fallback if GL fails on your display setup.
+backend = "gl"
+# Camera stream size for the preview. Kept modest: the screen is small and
+# a smaller stream means lower latency and less memory bandwidth.
+width = 1280
+height = 720
+# Keep the camera's aspect ratio (letterbox) instead of stretching.
+keep_aspect = true
+
+[camera]
+# Index into Picamera2.global_camera_info(). 0 = first CSI camera.
+index = 0
+# Rotate the image 180 degrees if the camera is mounted upside down.
+rotate_180 = false
+
+[ui]
+# Hold the exit button this long (ms) to quit. Prevents accidental exits.
+exit_hold_ms = 1000

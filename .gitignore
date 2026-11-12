@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+build/
+dist/
+
+# Machine-specific config overrides
+config/local.toml
+
+# Output from check scripts / captures
+captures/
+check_output/
